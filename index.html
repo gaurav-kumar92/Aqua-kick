@@ -53,6 +53,16 @@ const LEVELS=[
   {name:'EEL CAVERN',     theme:'eel',       bg1:'#1a1538',bg2:'#040210',cpuSpeed:1.46, cpuKickMul:0.70,shoot:0.55,approach:0.42,ballDark:false},
 ];
 let currentLevel=0;
+// Persistent high score = highest level number ever reached on this device/browser
+let highLevel=parseInt(localStorage.getItem('aquaKickHighLevel')||'1',10);
+let newBest=false;
+function updateHighScore(){
+  const reached=currentLevel+1;
+  if(reached>highLevel){
+    highLevel=reached;newBest=true;
+    try{localStorage.setItem('aquaKickHighLevel',highLevel);}catch(e){}
+  }
+}
 // Dev/test override: append #level=N (1-indexed) to the URL to start on that level.
 // Example: ...underwater_football_mobile.html#level=7  → starts on EEL CAVERN
 {const m=location.hash.match(/level=(\d+)/);if(m){const n=parseInt(m[1])-1;if(n>=0&&n<LEVELS.length)currentLevel=n;}}
@@ -290,6 +300,7 @@ function restart(){
   if(p1s>=WIN){currentLevel=(currentLevel+1)%LEVELS.length;levelIntroTimer=180;}
   setupLevel();
   p1s=0;p2s=0;state='playing';resetAll();sndWhistle();
+  newBest=false;
 }
 function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
 
@@ -400,7 +411,7 @@ function update(){
     addFish(primary);
   }
 
-  if(state==='goal'){if(!goalSfxPlayed){sndGoal();goalSfxPlayed=true;}gtimer--;if(gtimer<=0){state=(p1s>=WIN||p2s>=WIN)?'gameover':'playing';goalSfxPlayed=false;if(state==='playing'){resetAll();sndWhistle();}}return;}
+  if(state==='goal'){if(!goalSfxPlayed){sndGoal();goalSfxPlayed=true;}gtimer--;if(gtimer<=0){state=(p1s>=WIN||p2s>=WIN)?'gameover':'playing';goalSfxPlayed=false;if(state==='gameover'&&p1s>=WIN)updateHighScore();if(state==='playing'){resetAll();sndWhistle();}}return;}
   if(state==='gameover'){if(!overSfxPlayed){overSfxPlayed=true;p1s>=WIN?sndVictory():sndDefeat();}return;}
 
   // Movement from keyboard OR joystick
@@ -513,6 +524,7 @@ function draw(){
   ctx.textAlign='left';ctx.shadowColor='#ff3355';ctx.shadowBlur=14;ctx.fillStyle='#ff3355';ctx.font='bold 26px monospace';ctx.fillText(p2s,W/2+14,38);
   ctx.shadowBlur=0;ctx.font='7px monospace';ctx.textAlign='right';ctx.fillStyle='rgba(0,170,255,.45)';ctx.fillText('YOU',W/2-18,46);ctx.textAlign='left';ctx.fillStyle='rgba(255,51,85,.45)';ctx.fillText('CPU',W/2+18,46);
   ctx.textAlign='center';ctx.font='9px monospace';ctx.fillStyle='rgba(255,255,255,.5)';ctx.fillText('LEVEL '+(currentLevel+1)+' — '+lvl().name,W/2,62);
+  ctx.font='8px monospace';ctx.fillStyle='rgba(255,204,0,.55)';ctx.fillText('BEST: L'+highLevel,W/2,73);
 
   if(stuckTimer>15&&state==='playing'){const pct=stuckTimer/60;ctx.save();ctx.globalAlpha=.5;ctx.fillStyle='rgba(255,200,0,.15)';ctx.fillRect(W/2-60,H-15,120,5);ctx.fillStyle=`hsl(${60-pct*60},100%,60%)`;ctx.fillRect(W/2-60,H-15,120*pct,5);ctx.restore();}
   if(resetMsg>0){ctx.save();ctx.globalAlpha=Math.min(1,resetMsg/20);ctx.textAlign='center';ctx.font='bold 18px monospace';ctx.shadowColor='#ffcc00';ctx.shadowBlur=20;ctx.fillStyle='#ffcc00';ctx.fillText('BALL RESET!',W/2,H/2-50);ctx.restore();}
@@ -530,7 +542,10 @@ function draw(){
     ctx.fillText(lvl().name,W/2,H/2+18);
     ctx.restore();
   }
-  if(state==='gameover'){ctx.fillStyle='rgba(0,5,18,.86)';ctx.fillRect(0,0,W,H);const won=p1s>=WIN,col=won?'#00aaff':'#ff3355';ctx.save();ctx.translate(W/2,H/2);ctx.scale(1+Math.sin(tick*.09)*.022,1+Math.sin(tick*.09)*.022);ctx.textAlign='center';ctx.shadowColor=col;ctx.shadowBlur=45;ctx.fillStyle=col;ctx.font='bold 52px monospace';ctx.fillText(won?'VICTORY!':'DEFEAT',0,-32);ctx.font='22px monospace';ctx.shadowBlur=12;ctx.fillStyle='#fff';ctx.fillText(p1s+' — '+p2s,0,4);ctx.font='13px monospace';ctx.shadowBlur=8;ctx.fillStyle='rgba(255,255,255,.75)';ctx.fillText(won?('NEXT: '+LEVELS[(currentLevel+1)%LEVELS.length].name):('LEVEL '+(currentLevel+1)+' — '+lvl().name),0,30);ctx.font='11px monospace';ctx.shadowBlur=0;ctx.fillStyle=Math.sin(tick*.1)>0?'rgba(255,255,255,.5)':'transparent';ctx.fillText(won?'TAP TO CONTINUE':'TAP TO RETRY',0,58);ctx.restore();}
+  if(state==='gameover'){ctx.fillStyle='rgba(0,5,18,.86)';ctx.fillRect(0,0,W,H);const won=p1s>=WIN,col=won?'#00aaff':'#ff3355';ctx.save();ctx.translate(W/2,H/2);ctx.scale(1+Math.sin(tick*.09)*.022,1+Math.sin(tick*.09)*.022);ctx.textAlign='center';ctx.shadowColor=col;ctx.shadowBlur=45;ctx.fillStyle=col;ctx.font='bold 52px monospace';ctx.fillText(won?'VICTORY!':'DEFEAT',0,-32);ctx.font='22px monospace';ctx.shadowBlur=12;ctx.fillStyle='#fff';ctx.fillText(p1s+' — '+p2s,0,4);ctx.font='13px monospace';ctx.shadowBlur=8;ctx.fillStyle='rgba(255,255,255,.75)';ctx.fillText(won?('NEXT: '+LEVELS[(currentLevel+1)%LEVELS.length].name):('LEVEL '+(currentLevel+1)+' — '+lvl().name),0,30);
+    if(newBest){ctx.font='bold 14px monospace';ctx.shadowColor='#ffcc00';ctx.shadowBlur=16;ctx.fillStyle=Math.sin(tick*.2)>0?'#ffcc00':'#fff9c4';ctx.fillText('🏆 NEW BEST — LEVEL '+highLevel+'!',0,46);}
+    else{ctx.font='9px monospace';ctx.shadowBlur=0;ctx.fillStyle='rgba(255,204,0,.55)';ctx.fillText('BEST: LEVEL '+highLevel,0,46);}
+    ctx.font='11px monospace';ctx.shadowBlur=0;ctx.fillStyle=Math.sin(tick*.1)>0?'rgba(255,255,255,.5)':'transparent';ctx.fillText(won?'TAP TO CONTINUE':'TAP TO RETRY',0,66);ctx.restore();}
   if(state==='adbreak')drawAdBreak();
 }
 function drawAdBreak(){
