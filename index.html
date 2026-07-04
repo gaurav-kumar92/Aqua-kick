@@ -80,7 +80,18 @@ let muted=false,audioReady=false,AC;
 const AD_DURATION=300;          // 5s @ 60fps for placeholder
 const AD_SKIP_AFTER=180;        // allow tap-to-skip after 3s
 let adTimer=0,adOnFinish=null;
-function showAd(onFinish){state='adbreak';adTimer=AD_DURATION;adOnFinish=onFinish;}
+// Adsterra Popunder — loads once per session, only when a match actually ends
+// (win or lose), right as the ad-break placeholder starts. The popunder
+// script itself listens for the next click/tap and opens its window then.
+let popunderLoaded=false;
+function loadPopunder(){
+  if(popunderLoaded)return;
+  popunderLoaded=true;
+  const s=document.createElement('script');
+  s.src='https://pl30205009.effectivecpmnetwork.com/1a/45/70/1a457043edfc4488dea31278a3573afa.js';
+  document.body.appendChild(s);
+}
+function showAd(onFinish){state='adbreak';adTimer=AD_DURATION;adOnFinish=onFinish;loadPopunder();}
 function finishAd(){const cb=adOnFinish;adOnFinish=null;state='gameover';if(cb)cb();}
 function tapContinue(){
   if(state==='gameover')showAd(restart);
