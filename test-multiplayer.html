@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Photon Connection Test</title>
+<style>
+  body{font-family:monospace;background:#031224;color:#e8f6ff;padding:20px;}
+  #log{white-space:pre-wrap;background:#0a1c33;padding:12px;border-radius:6px;margin-top:12px;height:400px;overflow-y:auto;}
+  button{background:#00aaff;border:none;padding:10px 16px;border-radius:4px;cursor:pointer;font-weight:bold;margin-right:8px;}
+</style>
+</head>
+<body>
+<h2>🔌 Photon Connection Test</h2>
+<p>Open this same page in two separate browser tabs (or two devices) and click "Connect" on both. If working, each tab should log the other joining.</p>
+<button onclick="startTest()">Connect</button>
+<div id="log"></div>
+
+<script src="photon.js"></script>
+<script>
+const APP_ID = "643011c6-923a-4673-8e50-7ff74c1d8b41";
+const logEl = document.getElementById('log');
+function log(msg){
+  console.log(msg);
+  logEl.textContent += msg + "\n";
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+let client;
+
+function startTest(){
+  log("Loading SDK...");
+  const LBC = Photon.LoadBalancing.LoadBalancingClient;
+  client = new LBC(Photon.ConnectionProtocol.Wss, APP_ID, "1.0");
+
+  client.onStateChange = function(state){
+    log("State changed: " + LBC.StateToName(state));
+    if(state === LBC.State.JoinedLobby){
+      log("Joined lobby. Trying to join/create room 'test-room'...");
+      client.joinRoom("test-room", {createIfNotExists:true});
+    }
+  };
+
+  client.onJoinRoom = function(createdByMe){
+    log(createdByMe ? "✅ Created room (you're the host)." : "✅ Joined existing room.");
+    log("Players currently in room: " + Object.keys(client.myRoomActors()).length);
+  };
+
+  client.onActorJoin = function(actor){
+    if(!actor.isLocal) log("👤 Another player joined! Actor #" + actor.actorNr);
+  };
+
+  client.onActorLeave = function(actor){
+    if(!actor.isLocal) log("👋 Player left. Actor #" + actor.actorNr);
+  };
+
+  client.onError = function(errorCode, errorMsg){
+    log("❌ ERROR: " + errorCode + " - " + errorMsg);
+  };
+
+  log("Connecting to Photon Cloud...");
+  client.connectToRegionMaster("EU"); // change region if needed, e.g. "IN", "ASIA", "US"
+}
+</script>
+</body>
+</html>
