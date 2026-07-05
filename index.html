@@ -200,7 +200,8 @@ function showAd(onFinish){
 }
 function finishAd(){hideBannerAd();const cb=adOnFinish;adOnFinish=null;state='gameover';if(cb)cb();}
 function tapContinue(){
-  if(state==='gameover')showAd(restart);
+  if(state==='mpdisconnected')mpReturnToMenuFromDisconnect();
+  else if(state==='gameover')showAd(restart);
   else if(state==='adbreak'&&adTimer<AD_DURATION-AD_SKIP_AFTER)finishAd();
 }
 let joystick={dx:0,dy:0};
@@ -311,10 +312,10 @@ document.addEventListener('touchend',e=>{for(const t of e.changedTouches){if(t.i
 document.addEventListener('touchcancel',e=>{for(const t of e.changedTouches){if(t.identifier===jTouchId)resetJoystick();}});
 
 // Canvas tap: triggers ad break on match end; skips ad once allowed
-C.addEventListener('touchstart',e=>{if(state==='gameover'||state==='adbreak'){e.preventDefault();initAudio();tapContinue();}},{passive:false});
+C.addEventListener('touchstart',e=>{if(state==='gameover'||state==='adbreak'||state==='mpdisconnected'){e.preventDefault();initAudio();tapContinue();}},{passive:false});
 
 // ── KICK BUTTON TOUCH ────────────────────────────────────────
-kickBtn.addEventListener('touchstart',e=>{e.preventDefault();initAudio();if(state==='gameover'||state==='adbreak'){tapContinue();return;}kickBtn.classList.add('pressed');tryKick();},{passive:false});
+kickBtn.addEventListener('touchstart',e=>{e.preventDefault();initAudio();if(state==='gameover'||state==='adbreak'||state==='mpdisconnected'){tapContinue();return;}kickBtn.classList.add('pressed');tryKick();},{passive:false});
 kickBtn.addEventListener('touchend',()=>kickBtn.classList.remove('pressed'));
 
 // ── KEYBOARD ─────────────────────────────────────────────────
@@ -322,11 +323,11 @@ const keys={};
 function onKey(e,v){
   initAudio();keys[e.key]=v;
   if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown',' '].includes(e.key))e.preventDefault();
-  if(e.key===' '&&v){if(state==='gameover'||state==='adbreak'){tapContinue();return;}if(state==='playing')tryKick();}
+  if(e.key===' '&&v){if(state==='gameover'||state==='adbreak'||state==='mpdisconnected'){tapContinue();return;}if(state==='playing')tryKick();}
 }
 document.addEventListener('keydown',e=>onKey(e,1));document.addEventListener('keyup',e=>onKey(e,0));
-C.addEventListener('click',()=>{initAudio();if(state==='gameover'||state==='adbreak')tapContinue();});
-kickBtn.addEventListener('click',()=>{if(state==='gameover'||state==='adbreak')tapContinue();});
+C.addEventListener('click',()=>{initAudio();if(state==='gameover'||state==='adbreak'||state==='mpdisconnected')tapContinue();});
+kickBtn.addEventListener('click',()=>{if(state==='gameover'||state==='adbreak'||state==='mpdisconnected')tapContinue();});
 
 // ── GAME STATE ────────────────────────────────────────────────
 let p1,p2,ball;
@@ -379,6 +380,12 @@ const mpRoomCodeDisplay=document.getElementById('mpRoomCodeDisplay');
 const mpBack=document.getElementById('mpBack');
 
 function mpSetStatus(msg){mpStatus.textContent=msg;}
+
+function mpReturnToMenuFromDisconnect(){
+  state='menu';
+  mpMenu.style.display='flex';
+  mpShowMainMenu();
+}
 
 function mpShowMainMenu(){
   mpFriendPanel.style.display='none';
@@ -468,8 +475,14 @@ function mpConnect(onLobbyJoined, enforceCap){
   photonClient.onActorLeave = function(actor){
     mpUpdateRole();
     if(!actor.isLocal){
-      mpSetStatus('⚠️ Opponent disconnected.');
-      mpActive=false;
+      if(mpActive){
+        // We were mid-match (menu is hidden right now, so a status-text update
+        // alone would be invisible) — show a proper in-game overlay instead.
+        mpActive=false;
+        state='mpdisconnected';
+      } else {
+        mpSetStatus('⚠️ Opponent disconnected.');
+      }
     }
   };
   mpSetStatus('Connecting...');
@@ -653,6 +666,7 @@ function update(){
   if(state==='goal'){if(!goalSfxPlayed){sndGoal();goalSfxPlayed=true;}gtimer--;if(gtimer<=0){state=(p1s>=WIN||p2s>=WIN)?'gameover':'playing';goalSfxPlayed=false;if(state==='gameover'){track(p1s>=WIN?'match_won':'match_lost',{level:currentLevel+1,level_name:lvl().name,player_score:p1s,cpu_score:p2s,mode:mpActive?'online':'vs_cpu'});if(!mpActive&&p1s>=WIN)updateHighScore();}if(state==='playing'){resetAll();sndWhistle();}}return;}
   if(state==='gameover'){if(!overSfxPlayed){overSfxPlayed=true;const myWon=mpActive?(mpRole==='guest'?p2s>=WIN:p1s>=WIN):p1s>=WIN;myWon?sndVictory():sndDefeat();}return;}
   if(state==='menu')return;
+  if(state==='mpdisconnected')return;
 
   // Movement from keyboard OR joystick
   let ax=0,ay=0;
@@ -811,6 +825,17 @@ function draw(){
     else if(newBest){ctx.font='bold 14px monospace';ctx.shadowColor='#ffcc00';ctx.shadowBlur=16;ctx.fillStyle=Math.sin(tick*.2)>0?'#ffcc00':'#fff9c4';ctx.fillText('🏆 NEW BEST — LEVEL '+highLevel+'!',0,46);}
     else{ctx.font='9px monospace';ctx.shadowBlur=0;ctx.fillStyle='rgba(255,204,0,.55)';ctx.fillText('BEST: LEVEL '+highLevel,0,46);}
     ctx.font='11px monospace';ctx.shadowBlur=0;ctx.fillStyle=Math.sin(tick*.1)>0?'rgba(255,255,255,.5)':'transparent';ctx.fillText(myWon?'TAP TO CONTINUE':'TAP TO RETRY',0,66);ctx.restore();}
+  if(state==='mpdisconnected'){
+    ctx.fillStyle='rgba(0,5,18,.92)';ctx.fillRect(0,0,W,H);
+    ctx.save();ctx.translate(W/2,H/2);ctx.textAlign='center';
+    ctx.shadowColor='#ffcc00';ctx.shadowBlur=25;ctx.fillStyle='#ffcc00';
+    ctx.font='bold 22px monospace';ctx.fillText('⚠️ OPPONENT DISCONNECTED',0,-16);
+    ctx.shadowBlur=0;ctx.fillStyle='rgba(255,255,255,.75)';ctx.font='13px monospace';
+    ctx.fillText('The match has ended.',0,14);
+    ctx.font='11px monospace';ctx.fillStyle=Math.sin(tick*.1)>0?'rgba(255,255,255,.6)':'transparent';
+    ctx.fillText('TAP TO RETURN TO MENU',0,42);
+    ctx.restore();
+  }
   if(state==='adbreak')drawAdBreak();
 }
 function drawAdBreak(){
