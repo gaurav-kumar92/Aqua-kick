@@ -178,7 +178,26 @@ atOptions = {
   adBannerContainer.style.display='block';
 }
 function hideBannerAd(){adBannerContainer.style.display='none';adBannerContainer.innerHTML='';}
-function showAd(onFinish){state='adbreak';adTimer=AD_DURATION;adOnFinish=onFinish;loadPopunder();loadBannerAd();track('ad_break_shown',{level:currentLevel+1});}
+// Detects if this game is running inside a wrapped native app (Capacitor/Cordova)
+// rather than a normal mobile/desktop browser. When wrapped as an app, you'll use
+// Google Mobile Ads there instead — so web ads (Adsterra) should stay off.
+// Explicit override: set window.IS_APP_BUILD = true in the app wrapper's shell
+// HTML/JS before this script runs — this is the most reliable signal regardless
+// of which wrapper tool you end up using.
+function isNativeAppBuild(){
+  return !!(window.IS_APP_BUILD || window.Capacitor || window.cordova);
+}
+function showAd(onFinish){
+  if(isNativeAppBuild()){
+    // No web ad to show here — the app build will handle its own ad (Google Mobile Ads) separately.
+    track('ad_break_shown',{level:currentLevel+1,platform:'app'});
+    onFinish();
+    return;
+  }
+  state='adbreak';adTimer=AD_DURATION;adOnFinish=onFinish;
+  loadPopunder();loadBannerAd();
+  track('ad_break_shown',{level:currentLevel+1,platform:'web'});
+}
 function finishAd(){hideBannerAd();const cb=adOnFinish;adOnFinish=null;state='gameover';if(cb)cb();}
 function tapContinue(){
   if(state==='gameover')showAd(restart);
@@ -598,7 +617,7 @@ function updateAI(){
 let goalSfxPlayed=false,overSfxPlayed=false;
 
 function mpBroadcastIfHost(){
-  if(mpActive&&mpRole==='host'&&photonClient&&tick%2===0){
+  if(mpActive&&mpRole==='host'&&photonClient){
     photonClient.raiseEvent(EV_STATE,{
       p1x:p1.x,p1y:p1.y,p1vx:p1.vx,p1vy:p1.vy,
       p2x:p2.x,p2y:p2.y,p2vx:p2.vx,p2vy:p2.vy,
@@ -646,7 +665,7 @@ function update(){
   if(mpActive&&mpRole==='guest'){
     // We just send our input; the host runs the real physics and broadcasts
     // the result back to us (applied in the onEvent handler above).
-    if(photonClient&&tick%2===0){
+    if(photonClient){
       photonClient.raiseEvent(EV_INPUT,{ax,ay,kick:pendingKick});
       pendingKick=false;
     }
