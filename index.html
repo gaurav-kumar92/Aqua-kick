@@ -507,7 +507,9 @@ function mpJoinRoomByCode(){
 
 function restart(){
   // Player won → advance to next level (looping); CPU won → retry the same level
-  if(p1s>=WIN){currentLevel=(currentLevel+1)%LEVELS.length;levelIntroTimer=180;}
+  // Level progression is a VS CPU concept only — online matches stay level-neutral
+  // (currentLevel is reset to 0 fresh for every online match in mpStartMatchIfReady).
+  if(!mpActive&&p1s>=WIN){currentLevel=(currentLevel+1)%LEVELS.length;levelIntroTimer=180;}
   setupLevel();
   p1s=0;p2s=0;state='playing';resetAll();sndWhistle();
   newBest=false;
@@ -648,8 +650,8 @@ function update(){
     addFish(primary);
   }
 
-  if(state==='goal'){if(!goalSfxPlayed){sndGoal();goalSfxPlayed=true;}gtimer--;if(gtimer<=0){state=(p1s>=WIN||p2s>=WIN)?'gameover':'playing';goalSfxPlayed=false;if(state==='gameover'){track(p1s>=WIN?'match_won':'match_lost',{level:currentLevel+1,level_name:lvl().name,player_score:p1s,cpu_score:p2s});if(p1s>=WIN)updateHighScore();}if(state==='playing'){resetAll();sndWhistle();}}return;}
-  if(state==='gameover'){if(!overSfxPlayed){overSfxPlayed=true;p1s>=WIN?sndVictory():sndDefeat();}return;}
+  if(state==='goal'){if(!goalSfxPlayed){sndGoal();goalSfxPlayed=true;}gtimer--;if(gtimer<=0){state=(p1s>=WIN||p2s>=WIN)?'gameover':'playing';goalSfxPlayed=false;if(state==='gameover'){track(p1s>=WIN?'match_won':'match_lost',{level:currentLevel+1,level_name:lvl().name,player_score:p1s,cpu_score:p2s,mode:mpActive?'online':'vs_cpu'});if(!mpActive&&p1s>=WIN)updateHighScore();}if(state==='playing'){resetAll();sndWhistle();}}return;}
+  if(state==='gameover'){if(!overSfxPlayed){overSfxPlayed=true;const myWon=mpActive?(mpRole==='guest'?p2s>=WIN:p1s>=WIN):p1s>=WIN;myWon?sndVictory():sndDefeat();}return;}
   if(state==='menu')return;
 
   // Movement from keyboard OR joystick
@@ -777,9 +779,16 @@ function draw(){
   ctx.font='bold 26px monospace';ctx.textAlign='right';ctx.shadowColor='#00aaff';ctx.shadowBlur=14;ctx.fillStyle='#00aaff';ctx.fillText(p1s,W/2-14,38);
   ctx.textAlign='center';ctx.fillStyle='rgba(255,255,255,.2)';ctx.shadowBlur=0;ctx.font='18px monospace';ctx.fillText(':',W/2,37);
   ctx.textAlign='left';ctx.shadowColor='#ff3355';ctx.shadowBlur=14;ctx.fillStyle='#ff3355';ctx.font='bold 26px monospace';ctx.fillText(p2s,W/2+14,38);
-  ctx.shadowBlur=0;ctx.font='7px monospace';ctx.textAlign='right';ctx.fillStyle='rgba(0,170,255,.45)';ctx.fillText('YOU',W/2-18,46);ctx.textAlign='left';ctx.fillStyle='rgba(255,51,85,.45)';ctx.fillText('CPU',W/2+18,46);
-  ctx.textAlign='center';ctx.font='9px monospace';ctx.fillStyle='rgba(255,255,255,.5)';ctx.fillText('LEVEL '+(currentLevel+1)+' — '+lvl().name,W/2,62);
-  ctx.font='8px monospace';ctx.fillStyle='rgba(255,204,0,.55)';ctx.fillText('BEST: L'+highLevel,W/2,73);
+  ctx.shadowBlur=0;ctx.font='7px monospace';ctx.textAlign='right';
+  {
+    // Labels must reflect each player's own perspective: in online matches, the guest's
+    // own paddle is p2 (not p1) — hardcoding "YOU"=p1 would mislabel the guest's own score.
+    const p1Label=mpActive?(mpRole==='guest'?'OPPONENT':'YOU'):'YOU';
+    const p2Label=mpActive?(mpRole==='guest'?'YOU':'OPPONENT'):'CPU';
+    ctx.fillStyle='rgba(0,170,255,.45)';ctx.fillText(p1Label,W/2-18,46);ctx.textAlign='left';ctx.fillStyle='rgba(255,51,85,.45)';ctx.fillText(p2Label,W/2+18,46);
+  }
+  ctx.textAlign='center';ctx.font='9px monospace';ctx.fillStyle='rgba(255,255,255,.5)';ctx.fillText(mpActive?('ONLINE MATCH — '+lvl().name):('LEVEL '+(currentLevel+1)+' — '+lvl().name),W/2,62);
+  if(!mpActive)ctx.font='8px monospace';ctx.fillStyle='rgba(255,204,0,.55)';if(!mpActive)ctx.fillText('BEST: L'+highLevel,W/2,73);
 
   if(stuckTimer>15&&state==='playing'){const pct=stuckTimer/60;ctx.save();ctx.globalAlpha=.5;ctx.fillStyle='rgba(255,200,0,.15)';ctx.fillRect(W/2-60,H-15,120,5);ctx.fillStyle=`hsl(${60-pct*60},100%,60%)`;ctx.fillRect(W/2-60,H-15,120*pct,5);ctx.restore();}
   if(resetMsg>0){ctx.save();ctx.globalAlpha=Math.min(1,resetMsg/20);ctx.textAlign='center';ctx.font='bold 18px monospace';ctx.shadowColor='#ffcc00';ctx.shadowBlur=20;ctx.fillStyle='#ffcc00';ctx.fillText('BALL RESET!',W/2,H/2-50);ctx.restore();}
@@ -797,10 +806,11 @@ function draw(){
     ctx.fillText(lvl().name,W/2,H/2+18);
     ctx.restore();
   }
-  if(state==='gameover'){ctx.fillStyle='rgba(0,5,18,.86)';ctx.fillRect(0,0,W,H);const won=p1s>=WIN,col=won?'#00aaff':'#ff3355';ctx.save();ctx.translate(W/2,H/2);ctx.scale(1+Math.sin(tick*.09)*.022,1+Math.sin(tick*.09)*.022);ctx.textAlign='center';ctx.shadowColor=col;ctx.shadowBlur=45;ctx.fillStyle=col;ctx.font='bold 52px monospace';ctx.fillText(won?'VICTORY!':'DEFEAT',0,-32);ctx.font='22px monospace';ctx.shadowBlur=12;ctx.fillStyle='#fff';ctx.fillText(p1s+' — '+p2s,0,4);ctx.font='13px monospace';ctx.shadowBlur=8;ctx.fillStyle='rgba(255,255,255,.75)';ctx.fillText(won?('NEXT: '+LEVELS[(currentLevel+1)%LEVELS.length].name):('LEVEL '+(currentLevel+1)+' — '+lvl().name),0,30);
-    if(newBest){ctx.font='bold 14px monospace';ctx.shadowColor='#ffcc00';ctx.shadowBlur=16;ctx.fillStyle=Math.sin(tick*.2)>0?'#ffcc00':'#fff9c4';ctx.fillText('🏆 NEW BEST — LEVEL '+highLevel+'!',0,46);}
+  if(state==='gameover'){ctx.fillStyle='rgba(0,5,18,.86)';ctx.fillRect(0,0,W,H);const myWon=mpActive?(mpRole==='guest'?p2s>=WIN:p1s>=WIN):p1s>=WIN;const col=myWon?'#00aaff':'#ff3355';ctx.save();ctx.translate(W/2,H/2);ctx.scale(1+Math.sin(tick*.09)*.022,1+Math.sin(tick*.09)*.022);ctx.textAlign='center';ctx.shadowColor=col;ctx.shadowBlur=45;ctx.fillStyle=col;ctx.font='bold 52px monospace';ctx.fillText(myWon?'VICTORY!':'DEFEAT',0,-32);ctx.font='22px monospace';ctx.shadowBlur=12;ctx.fillStyle='#fff';const myScore=mpActive&&mpRole==='guest'?p2s:p1s,oppScore=mpActive&&mpRole==='guest'?p1s:p2s;ctx.fillText(myScore+' — '+oppScore,0,4);ctx.font='13px monospace';ctx.shadowBlur=8;ctx.fillStyle='rgba(255,255,255,.75)';ctx.fillText(mpActive?(myWon?'You won the match!':'Better luck next time!'):(myWon?('NEXT: '+LEVELS[(currentLevel+1)%LEVELS.length].name):('LEVEL '+(currentLevel+1)+' — '+lvl().name)),0,30);
+    if(mpActive){/* high score UI is a VS CPU concept only — skip it for online matches */}
+    else if(newBest){ctx.font='bold 14px monospace';ctx.shadowColor='#ffcc00';ctx.shadowBlur=16;ctx.fillStyle=Math.sin(tick*.2)>0?'#ffcc00':'#fff9c4';ctx.fillText('🏆 NEW BEST — LEVEL '+highLevel+'!',0,46);}
     else{ctx.font='9px monospace';ctx.shadowBlur=0;ctx.fillStyle='rgba(255,204,0,.55)';ctx.fillText('BEST: LEVEL '+highLevel,0,46);}
-    ctx.font='11px monospace';ctx.shadowBlur=0;ctx.fillStyle=Math.sin(tick*.1)>0?'rgba(255,255,255,.5)':'transparent';ctx.fillText(won?'TAP TO CONTINUE':'TAP TO RETRY',0,66);ctx.restore();}
+    ctx.font='11px monospace';ctx.shadowBlur=0;ctx.fillStyle=Math.sin(tick*.1)>0?'rgba(255,255,255,.5)':'transparent';ctx.fillText(myWon?'TAP TO CONTINUE':'TAP TO RETRY',0,66);ctx.restore();}
   if(state==='adbreak')drawAdBreak();
 }
 function drawAdBreak(){
