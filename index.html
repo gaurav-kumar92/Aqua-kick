@@ -386,8 +386,13 @@ function mpConnect(onLobbyJoined){
     else if(state === LBC.State.Disconnected) mpSetStatus('Disconnected.');
   };
   photonClient.onError = function(code,msg){mpSetStatus('Connection error — try again.');console.error('Photon error',code,msg);};
+  function mpUpdateRole(){
+    const myActorNr = photonClient.myActor().actorNr;
+    const masterNr = photonClient.myRoomMasterActorNr();
+    mpRole = (myActorNr === masterNr) ? 'host' : 'guest';
+  }
   photonClient.onJoinRoom = function(createdByMe){
-    mpRole = createdByMe ? 'host' : 'guest';
+    mpUpdateRole();
     const opponentCount = Object.keys(photonClient.myRoomActors()).length;
     if(opponentCount>=2){
       mpSetStatus('✅ Opponent connected! You are '+(mpRole==='host'?'HOST':'GUEST')+'.');
@@ -397,12 +402,14 @@ function mpConnect(onLobbyJoined){
     }
   };
   photonClient.onActorJoin = function(actor){
+    mpUpdateRole();
     if(!actor.isLocal){
       mpSetStatus('✅ Opponent connected! You are '+(mpRole==='host'?'HOST':'GUEST')+'.');
       track('mp_matched',{role:mpRole});
     }
   };
   photonClient.onActorLeave = function(actor){
+    mpUpdateRole();
     if(!actor.isLocal) mpSetStatus('⚠️ Opponent disconnected.');
   };
   mpSetStatus('Connecting...');
@@ -423,7 +430,7 @@ function mpCreateRoom(){
     mpRoomCodeDisplay.textContent=code;
     mpRoomCodeDisplay.style.display='block';
     mpSetStatus('Share this code with your friend:');
-    photonClient.joinRoom(code,{createIfNotExists:true,maxPlayers:2});
+    photonClient.joinRoom(code,{createIfNotExists:true},{maxPlayers:2});
   });
 }
 
