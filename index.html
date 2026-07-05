@@ -347,7 +347,11 @@ setupLevel();
 
 // ── MULTIPLAYER (Photon Realtime) ───────────────────────────────
 const APP_ID = "643011c6-923a-4673-8e50-7ff74c1d8b41";
-let photonClient=null, mpRole=null; // mpRole: null | 'host' | 'guest'
+let photonClient=null, mpRole=null, mpActive=false; // mpRole: null | 'host' | 'guest'
+let remoteInput={ax:0,ay:0,kick:false}; // host: latest input received from guest
+let pendingKick=false; // guest: kick queued to send on next input packet
+const EV_INPUT=1, EV_STATE=2;
+const MAX_ROOMS=8; // safety margin below the 20-CCU / 2-per-room = 10 room ceiling
 const mpMenu=document.getElementById('mpMenu');
 const mpStatus=document.getElementById('mpStatus');
 const mpFriendPanel=document.getElementById('mpFriendPanel');
@@ -364,11 +368,12 @@ function mpShowMainMenu(){
   mpBack.style.display='none';
   mpSetStatus('');
   if(photonClient){try{photonClient.disconnect();}catch(e){}photonClient=null;}
-  mpRole=null;
+  mpRole=null;mpActive=false;
 }
 
 function mpStartVsCpu(){
   mpMenu.style.display='none';
+  mpActive=false;mpRole=null;
   state='playing';
   track('mode_selected',{mode:'vs_cpu'});
 }
@@ -378,14 +383,45 @@ function mpShowFriendMenu(){
   mpBack.style.display='block';
 }
 
-function mpConnect(onLobbyJoined){
+function mpStartMatchIfReady(){
+  if(mpActive || Object.keys(photonClient.myRoomActors()).length<2) return;
+  mpActive=true;
+  mpMenu.style.display='none';
+  currentLevel=0;setupLevel();
+  p1s=0;p2s=0;resetAll();
+  state='playing';sndWhistle();
+  track('mp_match_start',{role:mpRole});
+}
+
+function mpConnect(onLobbyJoined, enforceCap){
   const LBC = Photon.LoadBalancing.LoadBalancingClient;
   photonClient = new LBC(Photon.ConnectionProtocol.Wss, APP_ID, "1.0");
   photonClient.onStateChange = function(state){
-    if(state === LBC.State.JoinedLobby) onLobbyJoined();
-    else if(state === LBC.State.Disconnected) mpSetStatus('Disconnected.');
+    if(state === LBC.State.Disconnected) mpSetStatus('Disconnected.');
+  };
+  photonClient.onRoomList = function(rooms){
+    if(enforceCap && rooms.length>=MAX_ROOMS){
+      mpSetStatus('⚠️ Servers are busy right now (max games reached). Please try again in a minute.');
+      photonClient.disconnect();
+      return;
+    }
+    onLobbyJoined();
   };
   photonClient.onError = function(code,msg){mpSetStatus('Connection error — try again.');console.error('Photon error',code,msg);};
+  photonClient.onEvent = function(code,content,actorNr){
+    if(code===EV_STATE){
+      // We're the guest: host is authoritative, just mirror whatever it sends.
+      p1.x=content.p1x;p1.y=content.p1y;p1.vx=content.p1vx;p1.vy=content.p1vy;
+      p2.x=content.p2x;p2.y=content.p2y;p2.vx=content.p2vx;p2.vy=content.p2vy;
+      ball.x=content.bx;ball.y=content.by;
+      p1s=content.p1s;p2s=content.p2s;state=content.state;gteam=content.gteam;currentLevel=content.currentLevel;
+      kickFlash=content.kf;cpuKickFlash=content.ckf;
+    } else if(code===EV_INPUT){
+      // We're the host: apply the guest's latest input to p2.
+      remoteInput.ax=content.ax;remoteInput.ay=content.ay;
+      if(content.kick)remoteInput.kick=true;
+    }
+  };
   function mpUpdateRole(){
     const myActorNr = photonClient.myActor().actorNr;
     const masterNr = photonClient.myRoomMasterActorNr();
@@ -397,6 +433,7 @@ function mpConnect(onLobbyJoined){
     if(opponentCount>=2){
       mpSetStatus('✅ Opponent connected! You are '+(mpRole==='host'?'HOST':'GUEST')+'.');
       track('mp_matched',{role:mpRole});
+      mpStartMatchIfReady();
     } else {
       mpSetStatus(mpRole==='host'?'Room created. Waiting for opponent...':'Joined room. Waiting...');
     }
@@ -406,11 +443,15 @@ function mpConnect(onLobbyJoined){
     if(!actor.isLocal){
       mpSetStatus('✅ Opponent connected! You are '+(mpRole==='host'?'HOST':'GUEST')+'.');
       track('mp_matched',{role:mpRole});
+      mpStartMatchIfReady();
     }
   };
   photonClient.onActorLeave = function(actor){
     mpUpdateRole();
-    if(!actor.isLocal) mpSetStatus('⚠️ Opponent disconnected.');
+    if(!actor.isLocal){
+      mpSetStatus('⚠️ Opponent disconnected.');
+      mpActive=false;
+    }
   };
   mpSetStatus('Connecting...');
   photonClient.connectToRegionMaster('EU');
@@ -421,7 +462,7 @@ function mpQuickMatch(){
   mpConnect(function(){
     mpSetStatus('Searching for opponent...');
     photonClient.joinRandomOrCreateRoom({},'',{maxPlayers:2});
-  });
+  }, true);
 }
 
 function mpCreateRoom(){
@@ -431,7 +472,7 @@ function mpCreateRoom(){
     mpRoomCodeDisplay.style.display='block';
     mpSetStatus('Share this code with your friend:');
     photonClient.joinRoom(code,{createIfNotExists:true},{maxPlayers:2});
-  });
+  }, true);
 }
 
 function mpShowJoinInput(){mpCodeRow.style.display='flex';}
@@ -442,7 +483,7 @@ function mpJoinRoomByCode(){
   mpConnect(function(){
     mpSetStatus('Joining room '+code+'...');
     photonClient.joinRoom(code,{createIfNotExists:false});
-  });
+  }, false);
 }
 
 function restart(){
@@ -455,6 +496,7 @@ function restart(){
 function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
 
 function tryKick(){
+  if(mpActive&&mpRole==='guest'){pendingKick=true;return;}
   if(p1.frozen>0){sndMiss();return;}
   if(kickCooldown>0){sndMiss();return;}
   const dx=ball.x-p1.x,dy=ball.y-p1.y,dist=Math.sqrt(dx*dx+dy*dy);
@@ -484,6 +526,19 @@ function shouldCpuKick(){
   const perpFromLine=Math.abs(-pdx*bgny+pdy*bgnx); // distance perpendicular
   if(projOnLine>0&&projOnLine<bgd&&perpFromLine<40)return false; // player in the way
   return true;
+}
+
+function tryNetKick(){
+  if(p2.frozen>0)return;
+  if(cpuKickCooldown>0)return;
+  const dx=ball.x-p2.x,dy=ball.y-p2.y,dist=Math.sqrt(dx*dx+dy*dy);
+  if(dist>KICK_RANGE)return;
+  cpuKickCooldown=28;cpuKickFlash=18;
+  const spd=Math.sqrt(p2.vx*p2.vx+p2.vy*p2.vy);
+  let kx,ky;
+  if(spd>0.5){kx=p2.vx/spd;ky=p2.vy/spd;}else{kx=dx/dist;ky=dy/dist;}
+  ball.vx=kx*KICK_FORCE;ball.vy=ky*KICK_FORCE;
+  p2.vx-=kx*2;p2.vy-=ky*2;sndKick();
 }
 
 function tryCpuKick(){
@@ -542,8 +597,21 @@ function updateAI(){
 
 let goalSfxPlayed=false,overSfxPlayed=false;
 
+function mpBroadcastIfHost(){
+  if(mpActive&&mpRole==='host'&&photonClient&&tick%2===0){
+    photonClient.raiseEvent(EV_STATE,{
+      p1x:p1.x,p1y:p1.y,p1vx:p1.vx,p1vy:p1.vy,
+      p2x:p2.x,p2y:p2.y,p2vx:p2.vx,p2vy:p2.vy,
+      bx:ball.x,by:ball.y,
+      p1s,p2s,state,gteam,currentLevel,
+      kf:kickFlash,ckf:cpuKickFlash
+    });
+  }
+}
+
 function update(){
   tick++;
+  mpBroadcastIfHost();
   // Ad break: countdown only, freeze all gameplay
   if(state==='adbreak'){adTimer--;if(adTimer<=0)finishAd();return;}
   if(resetMsg>0)resetMsg--;if(kickCooldown>0)kickCooldown--;if(kickFlash>0)kickFlash--;
@@ -575,10 +643,27 @@ function update(){
   ax=clamp(ax+joystick.dx,-1,1);ay=clamp(ay+joystick.dy,-1,1);
   if(p1.frozen>0){ax=0;ay=0;}
 
+  if(mpActive&&mpRole==='guest'){
+    // We just send our input; the host runs the real physics and broadcasts
+    // the result back to us (applied in the onEvent handler above).
+    if(photonClient&&tick%2===0){
+      photonClient.raiseEvent(EV_INPUT,{ax,ay,kick:pendingKick});
+      pendingKick=false;
+    }
+    return;
+  }
+
   p1.vx=clamp((p1.vx+ax*.9)*DRAG,-MSPD,MSPD);p1.vy=clamp((p1.vy+ay*.9)*DRAG,-MSPD,MSPD);
   p1.x=clamp(p1.x+p1.vx,GW+p1.r,W-GW-p1.r);p1.y=clamp(p1.y+p1.vy,p1.r,H-p1.r);
   // CPU freeze tick + AI gate (skip AI logic while frozen)
   if(p2.frozen>0){p2.frozen--;p2.vx*=0.7;p2.vy*=0.7;}
+  else if(mpActive&&mpRole==='host'){
+    // Guest-controlled paddle: apply their latest received input, same formula as p1's own movement.
+    const rax=clamp(remoteInput.ax,-1,1),ray=clamp(remoteInput.ay,-1,1);
+    p2.vx=clamp((p2.vx+rax*.9)*DRAG,-MSPD,MSPD);p2.vy=clamp((p2.vy+ray*.9)*DRAG,-MSPD,MSPD);
+    p2.x=clamp(p2.x+p2.vx,GW+p2.r,W-GW-p2.r);p2.y=clamp(p2.y+p2.vy,p2.r,H-p2.r);
+    if(remoteInput.kick){remoteInput.kick=false;tryNetKick();}
+  }
   else updateAI();
   // Eel shock check — same line-segment hit test applied to both players
   for(const f of fish){
