@@ -1,6 +1,14 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-PRQ2BGFHFB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-PRQ2BGFHFB');
+</script>
 <meta charset="UTF-8">
 <title>Underwater Football</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
@@ -53,6 +61,8 @@ const LEVELS=[
   {name:'EEL CAVERN',     theme:'eel',       bg1:'#1a1538',bg2:'#040210',cpuSpeed:1.46, cpuKickMul:0.70,shoot:0.55,approach:0.42,ballDark:false},
 ];
 let currentLevel=0;
+// Small wrapper so game events fail silently if gtag isn't ready (e.g. ad blockers)
+function track(name,params){try{if(typeof gtag==='function')gtag('event',name,params||{});}catch(e){}}
 // Persistent high score = highest level number ever reached on this device/browser
 let highLevel=parseInt(localStorage.getItem('aquaKickHighLevel')||'1',10);
 let newBest=false;
@@ -61,6 +71,7 @@ function updateHighScore(){
   if(reached>highLevel){
     highLevel=reached;newBest=true;
     try{localStorage.setItem('aquaKickHighLevel',highLevel);}catch(e){}
+    track('new_high_score',{level:highLevel});
   }
 }
 // Dev/test override: append #level=N (1-indexed) to the URL to start on that level.
@@ -128,7 +139,7 @@ atOptions = {
   adBannerContainer.style.display='block';
 }
 function hideBannerAd(){adBannerContainer.style.display='none';adBannerContainer.innerHTML='';}
-function showAd(onFinish){state='adbreak';adTimer=AD_DURATION;adOnFinish=onFinish;loadPopunder();loadBannerAd();}
+function showAd(onFinish){state='adbreak';adTimer=AD_DURATION;adOnFinish=onFinish;loadPopunder();loadBannerAd();track('ad_break_shown',{level:currentLevel+1});}
 function finishAd(){hideBannerAd();const cb=adOnFinish;adOnFinish=null;state='gameover';if(cb)cb();}
 function tapContinue(){
   if(state==='gameover')showAd(restart);
@@ -411,7 +422,7 @@ function update(){
     addFish(primary);
   }
 
-  if(state==='goal'){if(!goalSfxPlayed){sndGoal();goalSfxPlayed=true;}gtimer--;if(gtimer<=0){state=(p1s>=WIN||p2s>=WIN)?'gameover':'playing';goalSfxPlayed=false;if(state==='gameover'&&p1s>=WIN)updateHighScore();if(state==='playing'){resetAll();sndWhistle();}}return;}
+  if(state==='goal'){if(!goalSfxPlayed){sndGoal();goalSfxPlayed=true;}gtimer--;if(gtimer<=0){state=(p1s>=WIN||p2s>=WIN)?'gameover':'playing';goalSfxPlayed=false;if(state==='gameover'){track(p1s>=WIN?'match_won':'match_lost',{level:currentLevel+1,level_name:lvl().name,player_score:p1s,cpu_score:p2s});if(p1s>=WIN)updateHighScore();}if(state==='playing'){resetAll();sndWhistle();}}return;}
   if(state==='gameover'){if(!overSfxPlayed){overSfxPlayed=true;p1s>=WIN?sndVictory():sndDefeat();}return;}
 
   // Movement from keyboard OR joystick
